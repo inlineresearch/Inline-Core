@@ -1,0 +1,37 @@
+"""Run the engine: `python -m inline_core.server`. Registers models whose deps are installed."""
+
+from __future__ import annotations
+
+import uvicorn
+
+from ..config import data_dir
+from ..device.auto import AutoDevicePolicy
+from ..graph.cache import InMemoryCache
+from ..graph.registry import build_default_registry
+from ..runtime.file_store import FileTakeStore
+from .app import create_app
+from .bootstrap import register_models
+from .run_store import SqliteRunStore
+
+
+def main() -> None:
+    policy = AutoDevicePolicy()
+    registry = build_default_registry()
+    data = data_dir()
+    takes = data / "takes"
+    store = FileTakeStore(takes)
+    run_store = SqliteRunStore(data / "runs.db")
+    registered = register_models(registry, store, policy)
+    print(f"Registered models: {registered or 'none (source nodes only)'}")
+    app = create_app(
+        registry=registry,
+        cache=InMemoryCache(),
+        policy=policy,
+        run_store=run_store,
+        takes_dir=str(takes),
+    )
+    uvicorn.run(app, host="127.0.0.1", port=8848)
+
+
+if __name__ == "__main__":
+    main()
