@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..config import models_dir
-from ..device.auto import AutoDevicePolicy
+from ..device.memory import MemoryPolicy
 from ..device.policy import DevicePolicy
 from ..errors import GraphValidationError, UnknownNodeType
 from ..graph.cache import InMemoryCache, NodeCache
@@ -60,7 +60,7 @@ def create_app(
 ) -> FastAPI:
     registry = registry or build_default_registry()
     cache = cache or InMemoryCache()
-    policy = policy or AutoDevicePolicy()
+    policy = policy or MemoryPolicy()
     assets = AssetStore(Path(asset_dir or "./.inline-assets"))
     catalog = ModelCatalog(Path(models_root) if models_root else models_dir())
     takes_root = Path(takes_dir or "./.inline-takes")

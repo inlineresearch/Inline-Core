@@ -15,7 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
-from ..device.auto import AutoDevicePolicy
+from ..device.memory import MemoryPolicy
 from ..device.policy import DevicePolicy
 from ..errors import InlineCoreError
 from ..graph.cache import NodeCache
@@ -68,7 +68,7 @@ class RunManager:
     ) -> None:
         self._registry = registry
         self._cache = cache
-        self._policy = policy or AutoDevicePolicy()
+        self._policy = policy or MemoryPolicy()
         self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="run")
         self._runs: dict[str, RunRecord] = {}
         self._by_client: dict[str, str] = {}

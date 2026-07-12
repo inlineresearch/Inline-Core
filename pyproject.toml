@@ -5,6 +5,7 @@ description = "The generation engine behind Inline."
 requires-python = ">=3.11"
 dependencies = [
   "numpy>=1.26",
+  "psutil>=5.9",
 ]
 
 [project.optional-dependencies]

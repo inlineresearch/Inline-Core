@@ -21,6 +21,12 @@ class AttentionBackend(str, Enum):
     SDPA = "sdpa"
 
 
+class Quantization(str, Enum):
+    NONE = "none"
+    INT8 = "int8"  # torch-native weight-only, portable
+    NF4 = "nf4"  # bitsandbytes, cuda-only
+
+
 @dataclass(frozen=True)
 class Placement:
     """Where and how a component runs. Chosen by the policy, never by the component."""
@@ -47,3 +53,11 @@ class DevicePolicy(ABC):
     @abstractmethod
     def vae_tiling(self) -> bool:
         """Whether to tile VAE decode to cap peak memory."""
+
+    def attention_slicing(self) -> bool:
+        """Whether to slice attention to cap peak memory. Default off."""
+        return False
+
+    def quantization(self) -> Quantization:
+        """Weight quantization to fit low memory. Default none."""
+        return Quantization.NONE

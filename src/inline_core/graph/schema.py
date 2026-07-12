@@ -12,12 +12,19 @@ SCHEMA_VERSION = 1
 
 
 class PortKind(str, Enum):
+    # media (cross the wire as takes / assets)
     IMAGE = "image"
     IMAGE_LIST = "image[]"
     VIDEO = "video"
     AUDIO = "audio"
     TEXT = "text"
     MASK = "mask"
+    # engine handles (opaque, passed between low-level nodes; never a take)
+    MODEL = "model"
+    VAE = "vae"
+    TEXT_ENCODER = "text-encoder"
+    CONDITIONING = "conditioning"
+    LATENT = "latent"
 
 
 def port_satisfies(source: PortKind, target: PortKind) -> bool:

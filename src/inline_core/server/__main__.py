@@ -5,7 +5,7 @@ from __future__ import annotations
 import uvicorn
 
 from ..config import data_dir
-from ..device.auto import AutoDevicePolicy
+from ..device.memory import MemoryPolicy
 from ..graph.cache import InMemoryCache
 from ..graph.registry import build_default_registry
 from ..runtime.file_store import FileTakeStore
@@ -15,7 +15,7 @@ from .run_store import SqliteRunStore
 
 
 def main() -> None:
-    policy = AutoDevicePolicy()
+    policy = MemoryPolicy()
     registry = build_default_registry()
     data = data_dir()
     takes = data / "takes"

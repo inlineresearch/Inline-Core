@@ -7,6 +7,7 @@ import json
 
 from ..errors import UnknownNodeType
 from .descriptor import NodeDescriptor
+from .primitives import register_primitives
 from .runners import IMAGE_INPUT, TEXT_INPUT, ImageInputRunner, NodeRunner, TextInputRunner
 
 
@@ -15,9 +16,11 @@ class Registry:
         self._descriptors: dict[str, NodeDescriptor] = {}
         self._runners: dict[str, NodeRunner] = {}
 
-    def register(self, descriptor: NodeDescriptor, runner: NodeRunner) -> None:
+    def register(self, descriptor: NodeDescriptor, runner: NodeRunner | None = None) -> None:
+        """Register a node. A descriptor with no runner is served + validated but cannot run yet."""
         self._descriptors[descriptor.type] = descriptor
-        self._runners[descriptor.type] = runner
+        if runner is not None:
+            self._runners[descriptor.type] = runner
 
     def get(self, node_type: str) -> NodeDescriptor:
         descriptor = self._descriptors.get(node_type)
@@ -44,8 +47,12 @@ class Registry:
 
 
 def build_default_registry() -> Registry:
-    """A registry with the built-in source nodes. Models register onto it as they load."""
+    """A registry with the built-in source nodes and the low-level primitive descriptors.
+
+    Source nodes have runners; the primitives are descriptor-only until their runners land (C2).
+    """
     registry = Registry()
     registry.register(TEXT_INPUT, TextInputRunner())
     registry.register(IMAGE_INPUT, ImageInputRunner())
+    register_primitives(registry)
     return registry
