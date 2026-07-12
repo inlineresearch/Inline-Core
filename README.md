@@ -6,10 +6,11 @@ Windows, and Linux. It is the render backend that replaces ComfyUI for Inline.
 
 First model: Z-Image (Alibaba Tongyi), a 6B rectified-flow diffusion transformer.
 
-> Status: early. The graph engine, the typed `/v1` HTTP + websocket API (durable runs, streamed
-> progress), model-directory scanning, and the Z-Image loader are in place and tested. Cross-request
-> batching, the full low-VRAM/CPU policy, and out-of-process custom nodes are designed as seams but
-> not yet built.
+> Status: early, and running end to end against a stub engine. In place and tested: the graph engine,
+> the typed `/v1` HTTP + websocket API (durable runs, streamed progress, coalescing), the model-dir
+> scan, the device + memory policy (profiles, dtype, offload, int8), the low-level primitive node
+> vocabulary, and a ComfyUI workflow importer. The Z-Image loader is written and validates on a GPU.
+> Cross-request batching and out-of-process custom nodes are designed as seams but not yet built.
 
 ## How it differs from ComfyUI's architecture
 
@@ -54,6 +55,21 @@ models/
 ```
 
 The engine scans this on start; a node's model pickers list what is present.
+
+## Nodes and workflows
+
+The canvas (Storyline) wires **low-level primitive nodes** by typed edges. `/v1/models` serves each
+node's descriptor (ports, params, file pickers), so the UI renders any node generically and adding a
+node type needs no UI release.
+
+- Loaders: `load/diffusion-model`, `load/vae`, `load/text-encoder`
+- Conditioning: `encode/text`
+- Latent and sampling: `latent/empty`, `sample`
+- VAE: `vae/decode`, `vae/encode`
+
+Engine handles (`model`, `vae`, `text-encoder`, `conditioning`, `latent`) are typed sockets passed
+between nodes; only media outputs (`vae/decode`) become Frames with take history, the rest are
+ephemeral plumbing. A best-effort ComfyUI importer maps existing workflows onto these nodes.
 
 ## Run
 
