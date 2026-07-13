@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uvicorn
 
-from ..config import data_dir
+from ..config import data_dir, server_host, server_port
 from ..device.memory import MemoryPolicy
 from ..graph.cache import InMemoryCache
 from ..graph.registry import build_default_registry
@@ -30,7 +30,9 @@ def main() -> None:
         run_store=run_store,
         takes_dir=str(takes),
     )
-    uvicorn.run(app, host="127.0.0.1", port=8848)
+    host, port = server_host(), server_port()
+    print(f"Serving on http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":

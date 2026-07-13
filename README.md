@@ -117,8 +117,21 @@ xfuser denoise lands with the GPU-side Z-Image runner.
 
 ## Run
 
+The easy path is `webui.sh`, which maps friendly flags onto the engine's `INLINE_*` env knobs:
+
 ```
-python -m inline_core.server        # serves http://127.0.0.1:8848
+./webui.sh                            # loopback, port 8848
+./webui.sh --listen --port 9000       # bind all interfaces on 9000
+./webui.sh --multi-gpu                # split one image across GPUs (auto with 2+ GPUs)
+./webui.sh --lowvram                  # tight-VRAM profile
+./webui.sh --install --extra zimage   # set up ./.venv with the Z-Image runtime, then exit
+```
+
+`./webui.sh --help` lists every flag (networking, multi-GPU, device/memory profile, paths). Or run
+the server directly:
+
+```
+python -m inline_core.server          # serves http://127.0.0.1:8848 (INLINE_HOST / INLINE_PORT)
 ```
 
 Working data (the run database and takes) lives in `INLINE_DATA_DIR` (default `./.inline`).
