@@ -1,10 +1,12 @@
 # Inline Core
 
 The generation engine behind Inline. It takes a typed node graph (JSON) and returns immutable renders
-("takes"), running image and video models across GPUs, low-VRAM machines, and CPU-only boxes on macOS,
-Windows, and Linux. It is the render backend that replaces ComfyUI for Inline.
+("takes"), running image and video models on macOS, Windows, and Linux, from CPU-only boxes and
+low-VRAM laptops up to multi-GPU machines that split a single image's sampling across GPUs (via
+xDiT). It is the render backend that replaces ComfyUI for Inline.
 
-First model: Z-Image (Alibaba Tongyi), a 6B rectified-flow diffusion transformer.
+First model: Z-Image (Alibaba Tongyi), a 6B rectified-flow diffusion transformer (and a model xDiT
+already supports, so the multi-GPU split works on it from the start).
 
 > Status: early, and running end to end against a stub engine. In place and tested: the graph engine,
 > the typed `/v1` HTTP + websocket API (durable runs, streamed progress, coalescing), the model-dir
@@ -23,15 +25,17 @@ rebuilds the engine underneath it.
 | --- | --- | --- |
 | Graph vs GPU | runs the denoise loop inline, one request at a time | graph orchestration (cheap, per request) is separate from a batched sampler that groups compatible jobs across requests |
 | Schema | positional `widgets_values`, validated at runtime (dies mid-graph) | typed graph, named params, edges type-checked before the run (rejected at submit) |
-| Devices | some nodes pin to CPU on a GPU box; Z-Image will not run on CPU; no built-in single-image multi-GPU | one device/memory policy owns dtype, placement, offload, and attention; no node hardcodes a device; scales down to CPU and up to a multi-GPU split (xDiT) |
+| Devices | some nodes pin to CPU on a GPU box; Z-Image will not run on CPU | one device/memory policy owns dtype, placement, offload, and attention; no node hardcodes a device, so one graph runs GPU, low-VRAM, or pure CPU |
+| Multi-GPU | one image runs on one GPU; splitting a single image needs third-party nodes | one image's denoise can split across GPUs via xDiT (PipeFusion on PCIe, Ulysses on NVLink), in an isolated worker group behind the sampler seam |
 | Custom nodes | all load into one interpreter and env, so any node can break the core | run out of process, each pack in its own venv, behind a semver SDK |
 | Interface | a web UI driven by graph JSON over a socket; run state is ephemeral | a headless `/v1` HTTP + websocket API; runs are durable and survive a restart |
 | Outputs | files you overwrite | immutable takes; regenerating adds a take, never overwrites |
 | Models | `models/` dir, dropdowns from a scan | same layout (bring your own, no downloads); a typed catalog feeds versioned node descriptors the UI renders generically |
 
 The two boundaries that matter most: graph orchestration is decoupled from GPU batching (graphs are
-the unit of caching, the sampler is the unit of batching), and the device policy is the single owner
-of placement, so the same graph runs on a 4090, a 6 GB laptop, or pure CPU.
+the unit of caching, the sampler is the unit of batching, and the multi-GPU split routes through that
+same seam), and the device policy is the single owner of placement, so the same graph runs on a 4090,
+a 6 GB laptop, pure CPU, or split across several GPUs, without touching the graph.
 
 ## Install
 
