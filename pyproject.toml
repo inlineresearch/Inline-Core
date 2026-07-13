@@ -24,6 +24,14 @@ server = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.29",
 ]
+# Multi-GPU denoise: split one image across GPUs via xDiT (xfuser). Isolated in the worker group so
+# the core env is unaffected. torchrun ships with torch (from zimage); nvidia-ml-py detects NVLink so
+# the policy picks Ulysses vs PipeFusion. flash-attn (Ulysses/Ring on NVLink) is an opt-in extra.
+parallel = [
+  "inline-core[zimage]",
+  "xfuser>=0.4",
+  "nvidia-ml-py>=12",
+]
 dev = [
   "inline-core[server]",
   "pytest>=8",

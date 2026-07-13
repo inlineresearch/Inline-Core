@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import os
 
-from .detect import available_device
-from .policy import AttentionBackend, DevicePolicy, Placement, Profile, Quantization
+from .detect import available_devices, has_nvlink
+from .policy import AttentionBackend, DevicePolicy, Parallel, Placement, Profile, Quantization
 from .types import Device, DeviceKind, DType
 
 _GPU_MAX_MIN_VRAM_GB = 16.0  # at or above -> gpu-max, else lowvram
@@ -55,6 +55,23 @@ def _env_budget() -> float | None:
         return None
 
 
+def _env_parallel() -> Parallel | None:
+    """Parse INLINE_PARALLEL like `pipefusion=2,ulysses=2` into a degree spec."""
+    value = os.environ.get("INLINE_PARALLEL", "").strip()
+    if not value:
+        return None
+    valid = {"pipefusion", "ulysses", "ring", "cfg", "tensor"}
+    degrees: dict[str, int] = {}
+    for part in value.split(","):
+        key, _, raw = part.partition("=")
+        if key.strip() in valid:
+            try:
+                degrees[key.strip()] = int(raw)
+            except ValueError:
+                continue
+    return Parallel(**degrees) if degrees else None
+
+
 class MemoryPolicy(DevicePolicy):
     def __init__(
         self,
@@ -63,11 +80,17 @@ class MemoryPolicy(DevicePolicy):
         ram_gb: float | None = None,
         vram_gb: float | None = None,
         profile: Profile | None = None,
+        devices: tuple[Device, ...] | None = None,
+        nvlink: bool | None = None,
+        parallel: Parallel | None = None,
     ) -> None:
-        self._device = device or available_device()
+        self._devices = devices if devices is not None else available_devices()
+        self._device = device or self._devices[0]
         self._ram_gb = ram_gb if ram_gb is not None else _system_ram_gb()
         self._vram_gb = vram_gb if vram_gb is not None else _vram_gb(self._device)
         self._profile = profile or _env_profile() or self._choose_profile()
+        self._nvlink = nvlink if nvlink is not None else has_nvlink()
+        self._parallel = parallel if parallel is not None else _env_parallel()
 
     def _choose_profile(self) -> Profile:
         if self._device.kind is DeviceKind.CPU:
@@ -85,8 +108,30 @@ class MemoryPolicy(DevicePolicy):
 
     def placement(self, role: str) -> Placement:
         if self._profile is Profile.CPU:
-            return Placement(self._device, DType.FP32, offload=False)
-        return Placement(self._device, DType.BF16, offload=self._profile is Profile.LOWVRAM)
+            return Placement(self._device, DType.FP32)
+        offload = self._profile is Profile.LOWVRAM
+        if role == "denoiser":
+            parallel = self._denoiser_parallel()
+            if parallel is not None:
+                cuda = tuple(d for d in self._devices if d.kind is DeviceKind.CUDA)
+                return Placement(
+                    self._device,
+                    DType.BF16,
+                    offload=offload,
+                    devices=cuda[: parallel.world_size],
+                    parallel=parallel,
+                )
+        return Placement(self._device, DType.BF16, offload=offload)
+
+    def _denoiser_parallel(self) -> Parallel | None:
+        """Split the denoiser across GPUs when there are 2+. An explicit override wins; else auto:
+        PipeFusion on PCIe (no NVLink), sequence-parallel (Ulysses) on NVLink."""
+        if self._parallel is not None:
+            return self._parallel if self._parallel.world_size > 1 else None
+        cuda = [d for d in self._devices if d.kind is DeviceKind.CUDA]
+        if len(cuda) < 2:
+            return None
+        return Parallel(ulysses=len(cuda)) if self._nvlink else Parallel(pipefusion=len(cuda))
 
     def attention_backend(self) -> AttentionBackend:
         return AttentionBackend.SDPA

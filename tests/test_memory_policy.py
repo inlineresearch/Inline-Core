@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from inline_core.device.memory import MemoryPolicy
-from inline_core.device.policy import Profile, Quantization
+from inline_core.device.policy import Parallel, Profile, Quantization
 from inline_core.device.types import Device, DeviceKind
 
 _CUDA = Device(DeviceKind.CUDA, 0)
 _CPU = Device(DeviceKind.CPU)
+
+
+def _cuda(count: int) -> tuple[Device, ...]:
+    return tuple(Device(DeviceKind.CUDA, i) for i in range(count))
 
 
 def test_ample_vram_is_gpu_max() -> None:
@@ -40,3 +44,30 @@ def test_cpu_uses_fp32_and_quantizes_on_low_ram() -> None:
 def test_env_profile_override(monkeypatch) -> None:
     monkeypatch.setenv("INLINE_PROFILE", "lowvram")
     assert MemoryPolicy(_CUDA, vram_gb=48).profile is Profile.LOWVRAM
+
+
+def test_single_gpu_denoiser_is_not_parallel() -> None:
+    assert MemoryPolicy(devices=_cuda(1), vram_gb=24).placement("denoiser").parallel is None
+
+
+def test_two_gpus_pcie_split_with_pipefusion() -> None:
+    placement = MemoryPolicy(devices=_cuda(2), vram_gb=24, nvlink=False).placement("denoiser")
+    assert placement.parallel == Parallel(pipefusion=2)
+    assert placement.parallel is not None and placement.parallel.world_size == 2
+    assert len(placement.devices) == 2
+
+
+def test_two_gpus_nvlink_split_with_ulysses() -> None:
+    placement = MemoryPolicy(devices=_cuda(2), vram_gb=24, nvlink=True).placement("denoiser")
+    assert placement.parallel == Parallel(ulysses=2)
+
+
+def test_non_denoiser_role_stays_single_device() -> None:
+    policy = MemoryPolicy(devices=_cuda(2), vram_gb=24, nvlink=False)
+    assert policy.placement("vae").parallel is None
+
+
+def test_env_parallel_override(monkeypatch) -> None:
+    monkeypatch.setenv("INLINE_PARALLEL", "pipefusion=2,ulysses=2")
+    placement = MemoryPolicy(devices=_cuda(4), vram_gb=24).placement("denoiser")
+    assert placement.parallel == Parallel(pipefusion=2, ulysses=2)

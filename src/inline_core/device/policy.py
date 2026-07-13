@@ -28,12 +28,31 @@ class Quantization(str, Enum):
 
 
 @dataclass(frozen=True)
+class Parallel:
+    """How the denoiser is split across GPUs (xDiT degrees). Product of degrees = world size (GPUs).
+    PipeFusion is PCIe-friendly; Ulysses/Ring want NVLink; CFG applies only to guided models."""
+
+    pipefusion: int = 1
+    ulysses: int = 1
+    ring: int = 1
+    cfg: int = 1
+    tensor: int = 1
+
+    @property
+    def world_size(self) -> int:
+        return self.pipefusion * self.ulysses * self.ring * self.cfg * self.tensor
+
+
+@dataclass(frozen=True)
 class Placement:
     """Where and how a component runs. Chosen by the policy, never by the component."""
 
     device: Device
     dtype: DType
     offload: bool = False
+    # Multi-GPU (denoiser only): the device group + how it is split. Empty/None = single device.
+    devices: tuple[Device, ...] = ()
+    parallel: Parallel | None = None
 
 
 class DevicePolicy(ABC):

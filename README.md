@@ -10,7 +10,9 @@ First model: Z-Image (Alibaba Tongyi), a 6B rectified-flow diffusion transformer
 > the typed `/v1` HTTP + websocket API (durable runs, streamed progress, coalescing), the model-dir
 > scan, the device + memory policy (profiles, dtype, offload, int8), the low-level primitive node
 > vocabulary, and a ComfyUI workflow importer. The Z-Image loader is written and validates on a GPU.
-> Cross-request batching and out-of-process custom nodes are designed as seams but not yet built.
+> Cross-request batching, single-image multi-GPU (an xDiT worker group behind the sampler seam, with
+> the policy and IPC round-trip tested), and out-of-process custom nodes are built as seams but not
+> yet running on real hardware.
 
 ## How it differs from ComfyUI's architecture
 
@@ -21,7 +23,7 @@ rebuilds the engine underneath it.
 | --- | --- | --- |
 | Graph vs GPU | runs the denoise loop inline, one request at a time | graph orchestration (cheap, per request) is separate from a batched sampler that groups compatible jobs across requests |
 | Schema | positional `widgets_values`, validated at runtime (dies mid-graph) | typed graph, named params, edges type-checked before the run (rejected at submit) |
-| Devices | some nodes pin to CPU on a GPU box; Z-Image will not run on CPU | one device/memory policy owns dtype, placement, offload, and attention; no node hardcodes a device |
+| Devices | some nodes pin to CPU on a GPU box; Z-Image will not run on CPU; no built-in single-image multi-GPU | one device/memory policy owns dtype, placement, offload, and attention; no node hardcodes a device; scales down to CPU and up to a multi-GPU split (xDiT) |
 | Custom nodes | all load into one interpreter and env, so any node can break the core | run out of process, each pack in its own venv, behind a semver SDK |
 | Interface | a web UI driven by graph JSON over a socket; run state is ephemeral | a headless `/v1` HTTP + websocket API; runs are durable and survive a restart |
 | Outputs | files you overwrite | immutable takes; regenerating adds a take, never overwrites |
@@ -39,6 +41,7 @@ Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 uv venv
 uv pip install -e ".[server]"     # engine + HTTP/websocket API
 uv pip install -e ".[zimage]"     # + torch, diffusers, transformers (for real generation)
+uv pip install -e ".[parallel]"   # + xfuser, for splitting one image across GPUs (needs 2+ GPUs)
 ```
 
 ## Models
@@ -70,6 +73,47 @@ node type needs no UI release.
 Engine handles (`model`, `vae`, `text-encoder`, `conditioning`, `latent`) are typed sockets passed
 between nodes; only media outputs (`vae/decode`) become Frames with take history, the rest are
 ephemeral plumbing. A best-effort ComfyUI importer maps existing workflows onto these nodes.
+
+## Multi-GPU: split one image across GPUs
+
+Cut a single image's latency by running its denoise across several GPUs. The denoise loop (the
+iterative sampling step) is the expensive part of a render; with two or more GPUs, Inline Core runs
+each step's transformer forward collectively across them so one image finishes faster. This is not
+"one image per GPU" (independent renders); it is one image whose sampling is shared by all the GPUs.
+
+It is done with xDiT (`xfuser`), which parallelizes diffusion-transformer inference. xfuser runs in
+an isolated worker group the engine spawns (one process per GPU via `torchrun`) and talks to over
+local IPC, so the HTTP server, database, and graph stay single-process and only the denoise is
+distributed. It sits behind the sampler seam (`XFuserBatchedSampler`), so a single-GPU or CPU run
+takes the in-process path and pays no overhead.
+
+Two split methods, chosen from the interconnect the engine detects:
+
+- **PipeFusion (default, PCIe):** shards the transformer into a displaced patch pipeline with low,
+  depth-independent communication. It needs no NVLink and works over plain PCIe (or Ethernet across
+  nodes), so it is the default on a typical multi-GPU box.
+- **Ulysses (NVLink):** sequence-parallel attention, used when NVLink is present because it wants
+  the higher interconnect bandwidth.
+
+Enabling it:
+
+1. **Install the extra** and have 2+ CUDA GPUs on one machine:
+   ```
+   uv pip install -e ".[parallel]"   # pulls in xfuser and nvidia-ml-py; torchrun ships with torch
+   ```
+2. **Run normally.** On the first denoise, the device policy enumerates the GPUs, detects NVLink vs
+   PCIe (via `nvidia-ml-py`), and returns a parallel placement when there is more than one GPU. The
+   engine then spawns the xfuser worker group (lazily, once, then reuses it) and splits the sampling
+   across the GPUs. No graph, API, or per-request change is needed.
+3. **Override the split** if you want to pick it by hand, with `INLINE_PARALLEL`:
+   ```
+   INLINE_PARALLEL=pipefusion=2              # 2 GPUs, PipeFusion
+   INLINE_PARALLEL=pipefusion=2,ulysses=2    # 4 GPUs, PipeFusion x Ulysses
+   ```
+   The degrees multiply to the world size, which must equal the number of GPUs.
+
+The device policy and the worker-group IPC are in place and tested with a stub worker; the real
+xfuser denoise lands with the GPU-side Z-Image runner.
 
 ## Run
 
