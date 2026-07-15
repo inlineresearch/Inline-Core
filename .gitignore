@@ -6,6 +6,11 @@
 # Engine working data: the run DB and generated takes (also grows to gigabytes).
 /.inline/
 
+# Studio app data + project workspace (when created under the repo) and local server logs.
+/.inline-studio-server/
+/InlineStudioProjects/
+*.log
+
 # Python venv + bytecode
 .venv/
 __pycache__/

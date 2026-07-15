@@ -63,6 +63,10 @@ class NodeDescriptor:
     output_kind: MediaKind | None = None
     icon: str = ""
     source: str = "builtin"
+    # Internal building blocks (loaders, samplers, VAE) — served for validation/execution but never
+    # offered in the UI's add-node menu. Keeps generation one-click: the user sees only high-level
+    # model nodes (e.g. Z-Image Turbo); loading a diffusion model / VAE / encoder happens behind it.
+    hidden: bool = False
 
     def output(self, port_id: str) -> Port | None:
         return next((p for p in self.outputs if p.id == port_id), None)

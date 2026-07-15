@@ -7,6 +7,7 @@ conditioning, latent) now. Only media-output nodes (vae/decode) become Frames wi
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ..media import MediaKind
@@ -130,6 +131,7 @@ PRIMITIVES: tuple[NodeDescriptor, ...] = (
 
 
 def register_primitives(registry: Registry) -> None:
-    """Register the primitive descriptors. Their runners land in C2."""
+    """Register the primitive descriptors, marked hidden so they never surface in the add-node menu
+    (they stay available for validation/execution). Their runners land in C2."""
     for descriptor in PRIMITIVES:
-        registry.register(descriptor)
+        registry.register(replace(descriptor, hidden=True))

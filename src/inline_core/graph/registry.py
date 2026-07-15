@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 
 from ..errors import UnknownNodeType
 from .descriptor import NodeDescriptor
@@ -50,9 +51,11 @@ def build_default_registry() -> Registry:
     """A registry with the built-in source nodes and the low-level primitive descriptors.
 
     Source nodes have runners; the primitives are descriptor-only until their runners land (C2).
+    Both are marked hidden: the Studio drives text/image inputs through its own Prompt/library
+    nodes, so these plumbing types stay runnable but never appear in the add-node menu.
     """
     registry = Registry()
-    registry.register(TEXT_INPUT, TextInputRunner())
-    registry.register(IMAGE_INPUT, ImageInputRunner())
+    registry.register(replace(TEXT_INPUT, hidden=True), TextInputRunner())
+    registry.register(replace(IMAGE_INPUT, hidden=True), ImageInputRunner())
     register_primitives(registry)
     return registry

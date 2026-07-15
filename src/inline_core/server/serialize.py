@@ -49,7 +49,7 @@ def param_json(field: ParamField, catalog: ModelCatalog | None = None) -> dict[s
 def descriptor_json(
     descriptor: NodeDescriptor, catalog: ModelCatalog | None = None
 ) -> dict[str, Any]:
-    return {
+    out: dict[str, Any] = {
         "type": descriptor.type,
         "title": descriptor.title,
         "category": descriptor.category,
@@ -60,6 +60,9 @@ def descriptor_json(
         "outputs": [port_json(p) for p in descriptor.outputs],
         "params": [param_json(p, catalog) for p in descriptor.params],
     }
+    if descriptor.hidden:
+        out["hidden"] = True
+    return out
 
 
 def take_json(take: Take) -> dict[str, Any]:

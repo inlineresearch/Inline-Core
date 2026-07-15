@@ -1,8 +1,12 @@
 """The memory-aware device policy: measure RAM/VRAM, pick a profile, own dtype/offload/quant/tiling.
 
-Profiles: gpu-max (ample VRAM), lowvram (tight VRAM -> offload + slicing + int8), cpu (fp32, tiling,
-int8 to fit RAM). Override with INLINE_PROFILE and INLINE_VRAM_BUDGET_GB. Detection is lazy so the
-core imports without torch or psutil; an unavailable measurement keeps the policy conservative.
+Profiles: gpu-max (ample VRAM), lowvram (tight VRAM), cpu (fp32, tiling, int8 to fit RAM). We always
+prefer the GPU: even under lowvram, weights stay resident on the GPU (tiling + attention slicing +
+int8 do the memory saving) and we do NOT auto-offload to CPU — offloading is slow and defeats "use
+the GPU we have". Set INLINE_ALLOW_CPU_OFFLOAD=1 to opt back into streaming modules on/off the GPU
+for extreme cases. Override the profile/budget with INLINE_PROFILE and INLINE_VRAM_BUDGET_GB.
+Detection is lazy so the core imports without torch or psutil; an unavailable measurement keeps the
+policy conservative.
 """
 
 from __future__ import annotations
@@ -55,6 +59,12 @@ def _env_budget() -> float | None:
         return None
 
 
+def _env_allow_offload() -> bool:
+    """Opt back into CPU offload under lowvram. Off by default: we keep weights on the GPU."""
+    value = os.environ.get("INLINE_ALLOW_CPU_OFFLOAD", "").strip().lower()
+    return value in ("1", "true", "yes", "on")
+
+
 def _env_parallel() -> Parallel | None:
     """Parse INLINE_PARALLEL like `pipefusion=2,ulysses=2` into a degree spec."""
     value = os.environ.get("INLINE_PARALLEL", "").strip()
@@ -83,6 +93,7 @@ class MemoryPolicy(DevicePolicy):
         devices: tuple[Device, ...] | None = None,
         nvlink: bool | None = None,
         parallel: Parallel | None = None,
+        allow_offload: bool | None = None,
     ) -> None:
         self._devices = devices if devices is not None else available_devices()
         self._device = device or self._devices[0]
@@ -91,6 +102,7 @@ class MemoryPolicy(DevicePolicy):
         self._profile = profile or _env_profile() or self._choose_profile()
         self._nvlink = nvlink if nvlink is not None else has_nvlink()
         self._parallel = parallel if parallel is not None else _env_parallel()
+        self._allow_offload = allow_offload if allow_offload is not None else _env_allow_offload()
 
     def _choose_profile(self) -> Profile:
         if self._device.kind is DeviceKind.CPU:
@@ -109,7 +121,9 @@ class MemoryPolicy(DevicePolicy):
     def placement(self, role: str) -> Placement:
         if self._profile is Profile.CPU:
             return Placement(self._device, DType.FP32)
-        offload = self._profile is Profile.LOWVRAM
+        # Always prefer the GPU: even under lowvram, keep weights resident (tiling/slicing/int8 save
+        # memory instead). Only stream modules to CPU when explicitly opted in via env.
+        offload = self._profile is Profile.LOWVRAM and self._allow_offload
         if role == "denoiser":
             parallel = self._denoiser_parallel()
             if parallel is not None:

@@ -20,13 +20,27 @@ def test_ample_vram_is_gpu_max() -> None:
     assert policy.attention_slicing() is False
 
 
-def test_tight_vram_is_lowvram_with_offload() -> None:
+def test_tight_vram_is_lowvram_but_keeps_weights_on_gpu() -> None:
+    # Always prefer the GPU: lowvram saves memory with slicing/tiling/int8, NOT by CPU offload.
     policy = MemoryPolicy(_CUDA, vram_gb=6)
     assert policy.profile is Profile.LOWVRAM
-    assert policy.placement("denoiser").offload is True
+    assert policy.placement("denoiser").offload is False
     assert policy.attention_slicing() is True
     assert policy.vae_tiling() is True
     assert policy.quantization() is Quantization.INT8
+
+
+def test_lowvram_offload_is_opt_in_via_env(monkeypatch) -> None:
+    monkeypatch.setenv("INLINE_ALLOW_CPU_OFFLOAD", "1")
+    policy = MemoryPolicy(_CUDA, vram_gb=6)
+    assert policy.profile is Profile.LOWVRAM
+    assert policy.placement("denoiser").offload is True
+
+
+def test_lowvram_offload_can_be_forced_off_via_arg() -> None:
+    # An explicit allow_offload arg wins over the env default.
+    policy = MemoryPolicy(_CUDA, vram_gb=6, allow_offload=True)
+    assert policy.placement("denoiser").offload is True
 
 
 def test_cpu_uses_fp32_and_quantizes_on_low_ram() -> None:

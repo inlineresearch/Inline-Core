@@ -55,7 +55,9 @@ class _FakeStore:
 @pytest.fixture
 def use_fake_pipe(monkeypatch: pytest.MonkeyPatch) -> _FakePipe:
     pipe = _FakePipe()
-    monkeypatch.setattr(rz, "_load_pipeline", lambda policy, *, img2img: pipe)
+    monkeypatch.setattr(
+        rz, "_load_pipeline", lambda policy, *, img2img, source, single_file: pipe
+    )
     return pipe
 
 
@@ -127,7 +129,10 @@ def test_cancel_during_sampling_raises(monkeypatch: pytest.MonkeyPatch) -> None:
             kw["callback_on_step_end"](self, 0, None, {"latents": None})
             raise AssertionError("callback should have raised before returning")
 
-    monkeypatch.setattr(rz, "_load_pipeline", lambda policy, *, img2img: _CancellingPipe())
+    monkeypatch.setattr(
+        rz, "_load_pipeline",
+        lambda policy, *, img2img, source, single_file: _CancellingPipe(),
+    )
     runner = rz.ZImageRunner(_FakeStore(), MemoryPolicy())
     ctx, _ = _ctx(cancel)
     node = Node(id="f", type="alibaba/z-image-turbo")
@@ -142,8 +147,9 @@ def test_resolve_seed() -> None:
     assert 0 <= rz._resolve_seed("not-a-number") <= rz._SEED_MAX
 
 
-def test_model_source_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_model_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    monkeypatch.setenv("INLINE_MODELS_DIR", str(tmp_path))  # empty models root -> no local files
     monkeypatch.setenv("INLINE_ZIMAGE_MODEL", "some-org/Custom-Model")
-    assert rz._model_source() == "some-org/Custom-Model"
+    assert rz._resolve_model() == ("some-org/Custom-Model", False)  # repo id, not a single file
     monkeypatch.delenv("INLINE_ZIMAGE_MODEL")
-    assert rz._model_source() == rz._DEFAULT_MODEL  # default when nothing installed locally
+    assert rz._resolve_model() == (rz._DEFAULT_MODEL, False)  # default when nothing local
